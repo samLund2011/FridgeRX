@@ -43,20 +43,20 @@ async function prepareNote(file){
 }
 
 
-let noteCanvas=null,detectedLines=[];
+let noteCanvas=null,detectedLines=[],selectedRegion=null,regionStart=null;
 
 function renderLineReview(){
  const holder=$('#line-review');holder.replaceChildren();
  detectedLines.forEach((line,index)=>{const row=document.createElement('div');row.style.cssText='margin:12px 0;padding:12px;background:#fff;border-radius:8px';
  const label=document.createElement('label');label.textContent='Line '+(index+1)+(line.needsReview?' — readings differ; check photo':'');row.append(label);
  const crop=cropDetectedLine(line.box);crop.style.cssText='width:100%;height:auto;background:white';crop.setAttribute('aria-label','Original image of line '+(index+1));row.append(crop);
- const field=document.createElement('input');field.value=line.text;field.setAttribute('aria-label','Correct line '+(index+1));field.oninput=()=>{line.text=field.value;$('#transcript').value=detectedLines.map(l=>l.text).join('\n')};row.append(field);
+ const field=document.createElement('input');field.value=line.text;field.setAttribute('aria-label','Correct line '+(index+1));field.oninput=()=>{line.text=field.value;$('#transcript').value=detectedLines.map(l=>l.text).join('\n')};row.append(field);const retry=document.createElement('button');retry.type='button';retry.className='secondary';retry.textContent='Read this line again';retry.onclick=()=>readSelectedRegion(line.box,index);row.append(retry);
  if(line.alternatives?.length>1){const select=document.createElement('select');select.setAttribute('aria-label','Alternative readings for line '+(index+1));const placeholder=document.createElement('option');placeholder.textContent='Compare other readings…';placeholder.value='';select.append(placeholder);for(const text of line.alternatives){const option=document.createElement('option');option.textContent=text;option.value=text;select.append(option)}select.onchange=()=>{if(select.value){field.value=select.value;field.dispatchEvent(new Event('input'))}};row.append(select)}holder.append(row)
  });
 }
 function cropDetectedLine(box){const c=document.createElement('canvas'),x=Math.max(0,Math.floor(box.x*noteCanvas.width)-10),y=Math.max(0,Math.floor(box.y*noteCanvas.height)-8);c.width=Math.min(noteCanvas.width-x,Math.ceil(box.width*noteCanvas.width)+20);c.height=Math.min(noteCanvas.height-y,Math.ceil(box.height*noteCanvas.height)+16);c.getContext('2d').drawImage(noteCanvas,x,y,c.width,c.height,0,0,c.width,c.height);return c}
 
-function showDetectedLines(lines){const c=$('#crop-canvas');c.width=noteCanvas.width;c.height=noteCanvas.height;const ctx=c.getContext('2d');ctx.drawImage(noteCanvas,0,0);ctx.lineWidth=Math.max(2,c.width/500);for(const l of lines){const b=l.box;ctx.strokeStyle=!l.needsReview&&l.confidence>=.65?'#285b49':'#bd735e';ctx.strokeRect(b.x*c.width,b.y*c.height,b.width*c.width,b.height*c.height)}$('#crop-tools').hidden=false;$('#crop-tools p').textContent='Boxes show where text was detected. Green: higher confidence. Coral: uncertain. Compare these lines with the transcript before filling the form.';$('#read-crop').hidden=true}
+function showDetectedLines(lines){const c=$('#crop-canvas');c.width=noteCanvas.width;c.height=noteCanvas.height;const ctx=c.getContext('2d');ctx.drawImage(noteCanvas,0,0);ctx.lineWidth=Math.max(2,c.width/500);for(const l of lines){const b=l.box;ctx.strokeStyle=!l.needsReview&&l.confidence>=.65?'#285b49':'#bd735e';ctx.strokeRect(b.x*c.width,b.y*c.height,b.width*c.width,b.height*c.height)}$('#crop-tools').hidden=false;$('#crop-tools p').textContent='Boxes show where text was detected. Green: higher confidence. Coral: uncertain. Compare these lines with the transcript before filling the form.';$('#read-crop').hidden=false;$('#read-crop').disabled=!selectedRegion;$('#crop-tools p').textContent='Drag a box around ONE line to read it separately. Each detected line also has a Read this line again button.'}
 
 let browserReader;
 async function loadPhotoReader(){
@@ -82,12 +82,32 @@ let penReader,penModule;
 async function loadHandwrittenReader(){
  if(!penReader){penReader=(async()=>{penModule=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1');penModule.env.allowLocalModels=false;penModule.env.backends.onnx.wasm.numThreads=1;penModule.env.backends.onnx.wasm.proxy=false;return penModule.pipeline('image-to-text','Xenova/trocr-small-handwritten',{device:'wasm',dtype:'q8',progress_callback:p=>{if(p.status==='progress')$('#scan-status').textContent='Downloading handwriting reader… '+Math.round(p.progress||0)+'% (first scan only)'}})})();penReader.catch(()=>{penReader=null})}return penReader;
 }
+
+async function recognizePenCrop(reader,box){const crop=cropDetectedLine(box),raw=await penModule.RawImage.fromURL(crop.toDataURL('image/png'));const output=await reader(raw,{max_new_tokens:80,num_beams:3,no_repeat_ngram_size:3});return String(output[0]?.generated_text||'').trim()}
 async function transcribeHandwrittenCanvas(canvas){
- const boxes=findNoteLines(canvas);if(!boxes.length)throw Error('No lines were detected. Use a bright, close-up photo with the paper upright.');if(boxes.length>35)throw Error('Too many marks were detected. Crop the photo to the note and try again.');
- const reader=await loadHandwrittenReader(),lines=[];
- for(let i=0;i<boxes.length;i++){$('#scan-status').textContent='Transcribing handwritten line '+(i+1)+' of '+boxes.length+'…';const b=boxes[i],box={x:b.x/canvas.width,y:b.y/canvas.height,width:b.width/canvas.width,height:b.height/canvas.height},crop=cropDetectedLine(box);const raw=await penModule.RawImage.fromURL(crop.toDataURL('image/png'));const output=await reader(raw,{max_new_tokens:80,num_beams:3,no_repeat_ngram_size:3});const text=String(output[0]?.generated_text||'').trim();if(text)lines.push({text,box,confidence:0,needsReview:true,alternatives:[text]})}
+ const boxes=findNoteLines(canvas);showDetectedLines([]);
+ if(!boxes.length||boxes.length>35){$('#scan-status').textContent='Select one text line on the photo and choose Read selected line.';return []}
+ const lines=boxes.map(b=>({text:'',box:{x:b.x/canvas.width,y:b.y/canvas.height,width:b.width/canvas.width,height:b.height/canvas.height},confidence:0,needsReview:true,alternatives:[]}));
+ detectedLines=lines;showDetectedLines(lines);renderLineReview();$('#transcript-panel').hidden=false;$('#transcript-panel').open=true;
+ const reader=await loadHandwrittenReader();
+ for(let i=0;i<lines.length;i++){$('#scan-status').textContent='Reading image line '+(i+1)+' of '+lines.length+'…';try{lines[i].text=await recognizePenCrop(reader,lines[i].box);lines[i].alternatives=lines[i].text?[lines[i].text]:[]}catch(error){lines[i].readError=true}detectedLines=lines;renderLineReview();$('#transcript').value=lines.map(l=>l.text).join('\n');await new Promise(resolve=>setTimeout(resolve,0))}
  return lines;
 }
+function regionPoint(event){const c=$('#crop-canvas'),r=c.getBoundingClientRect();return {x:Math.max(0,Math.min(1,(event.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(event.clientY-r.top)/r.height))}}
+$('#crop-canvas').onpointerdown=event=>{if(scanBusy||!noteCanvas)return;regionStart=regionPoint(event);event.currentTarget.setPointerCapture(event.pointerId)};
+$('#crop-canvas').onpointermove=event=>{if(!regionStart||scanBusy)return;const point=regionPoint(event);selectedRegion={x:Math.min(point.x,regionStart.x),y:Math.min(point.y,regionStart.y),width:Math.abs(point.x-regionStart.x),height:Math.abs(point.y-regionStart.y)};showDetectedLines(detectedLines);const c=$('#crop-canvas'),ctx=c.getContext('2d');ctx.fillStyle='#bd735e33';ctx.fillRect(selectedRegion.x*c.width,selectedRegion.y*c.height,selectedRegion.width*c.width,selectedRegion.height*c.height)};
+$('#crop-canvas').onpointerup=()=>{regionStart=null;$('#read-crop').disabled=!selectedRegion||selectedRegion.width<.01||selectedRegion.height<.005};
+$('#crop-canvas').onpointercancel=()=>{regionStart=null};
+async function readSelectedRegion(box,index){
+ if(scanBusy||!noteCanvas||!box)return;scanBusy=true;$('#read-crop').disabled=true;$('#photo').disabled=true;$('#appointment-form button.primary').disabled=true;$('#scan-status').textContent='Reading only the selected image line…';
+ try{let text;if($('#photo-kind').value==='handwritten')text=await recognizePenCrop(await loadHandwrittenReader(),box);else{const reader=await loadPhotoReader();await reader.setParameters({tessedit_pageseg_mode:'7'});const {data}=await reader.recognize(cropDetectedLine(box));text=data.text.trim()}
+ if(!text)throw Error('No readable text was found in this selection.');
+ if(index===undefined){index=detectedLines.findIndex(l=>{const a=l.box;const overlap=Math.max(0,Math.min(a.x+a.width,box.x+box.width)-Math.max(a.x,box.x))*Math.max(0,Math.min(a.y+a.height,box.y+box.height)-Math.max(a.y,box.y));return overlap/Math.max(.000001,Math.min(a.width*a.height,box.width*box.height))>.65})}
+ if(index>=0){const line=detectedLines[index];line.alternatives=[...new Set([...(line.alternatives||[]),line.text,text].filter(Boolean))];line.text=text;line.box=box;line.needsReview=true}else detectedLines.push({text,box,confidence:0,needsReview:true,alternatives:[text]});detectedLines.sort((a,b)=>a.box.y-b.box.y||a.box.x-b.box.x);displayTranscription(detectedLines);$('#scan-status').textContent='Selected line transcribed from the image. Compare its close-up below before filling the form.';
+ }catch(error){$('#scan-status').textContent='Could not read this line: '+error.message+' Try selecting a tighter box around the handwriting.'}
+ finally{scanBusy=false;$('#read-crop').disabled=!selectedRegion;$('#photo').disabled=false;$('#appointment-form button.primary').disabled=false}
+}
+$('#read-crop').onclick=()=>readSelectedRegion(selectedRegion);
 async function transcribeSelectedType(){return $('#photo-kind').value==='handwritten'?transcribeHandwrittenCanvas(noteCanvas):transcribeCanvas(noteCanvas,await loadPhotoReader())}
 
 async function transcribeCanvas(canvas,reader){
@@ -106,7 +126,7 @@ async function rereadCurrentNote(){if(scanBusy||!noteCanvas)return;scanBusy=true
 $('#photo-kind').onchange=()=>{if(noteCanvas&&!scanBusy)rereadCurrentNote()};
 $('#rotate-note').onclick=async()=>{if(!noteCanvas||scanBusy)return;const rotated=document.createElement('canvas');rotated.width=noteCanvas.height;rotated.height=noteCanvas.width;const ctx=rotated.getContext('2d');ctx.translate(rotated.width,0);ctx.rotate(Math.PI/2);ctx.drawImage(noteCanvas,0,0);noteCanvas=rotated;await rereadCurrentNote()};
 async function readPhoto(){
- if(scanBusy)return;const file=$('#photo').files[0];$('#transcript').value='';$('#line-review').replaceChildren();detectedLines=[];$('#transcript-panel').hidden=true;$('#crop-tools').hidden=true;
+ if(scanBusy)return;const file=$('#photo').files[0];$('#transcript').value='';$('#line-review').replaceChildren();detectedLines=[];selectedRegion=null;$('#transcript-panel').hidden=true;$('#crop-tools').hidden=true;
  if(!file)return;if(file.size>4000000){$('#scan-status').textContent='Choose a photo smaller than 4 MB.';return}
  scanBusy=true;$('#photo-kind').disabled=true;$('#photo').disabled=true;$('#rescan').disabled=true;$('#appointment-form button.primary').disabled=true;$('#scan-status').textContent='Loading the photo reader…';
  try{noteCanvas=await prepareNote(file);displayTranscription(await transcribeSelectedType());
@@ -114,6 +134,6 @@ async function readPhoto(){
  finally{scanBusy=false;$('#photo-kind').disabled=false;$('#rotate-note').disabled=false;$('#photo').disabled=false;$('#rescan').disabled=false;$('#appointment-form button.primary').disabled=false}
 }
 $('#photo').addEventListener('change',readPhoto);$('#rescan').onclick=()=>noteCanvas?rereadCurrentNote():readPhoto();$('#apply-transcript').onclick=()=>{const filled=fillFromText();$('#scan-status').textContent=filled.length?'Filled '+filled.join(', ')+'. Please check the results.':'No additional fields found. Existing entries are kept; clear a field to fill it again.'};
-$('#appointment-form').addEventListener('reset',()=>{$('#scan-status').textContent='';$('#scan-preview').hidden=true;$('#crop-tools').hidden=true;noteCanvas=null;if(previewURL){URL.revokeObjectURL(previewURL);previewURL=null}$('#transcript-panel').hidden=true;$('#rescan').disabled=true;$('#rotate-note').disabled=true});
+$('#appointment-form').addEventListener('reset',()=>{$('#scan-status').textContent='';$('#scan-preview').hidden=true;$('#crop-tools').hidden=true;noteCanvas=null;selectedRegion=null;if(previewURL){URL.revokeObjectURL(previewURL);previewURL=null}$('#transcript-panel').hidden=true;$('#rescan').disabled=true;$('#rotate-note').disabled=true});
 
 </script></body></html>
