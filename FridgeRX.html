@@ -11,30 +11,29 @@ let scanBusy=false,previewURL;
 
 const scanPanel=$('#scan-panel');$('#appointment-form').insertBefore(scanPanel,$('label[for="title"]'));
 function parseAppointment(text){
- const result={},lines=text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
- const labeled=label=>{const re=new RegExp('^(?:'+label+')\\s*(?:[:\\-]\\s*|\\s+)(.+)$','i');for(const l of lines){const m=l.match(re);if(m)return m[1].trim()}return ''};
- result.title=labeled('appointment(?: name)?|visit(?: name)?|procedure|appt(?: name)?');
- result.notes=labeled('reason(?: for (?:the )?visit)?|purpose|notes|visit reason');
- result.location=labeled('location|where|address|clinic');
- // Use only text actually present in the transcription; explicit labels take priority.
- const streetAddress=/\b\d{1,6}[A-Za-z]?(?:\s+[A-Za-z0-9.'’-]+){1,8}\s+(?:road|rd|street|st|avenue|ave|boulevard|blvd|drive|dr|lane|ln|court|ct|circle|cir|way|parkway|pkwy|place|pl|terrace|ter|trail|trl|highway|hwy)\b\.?/i;
- if(!result.location){for(const line of lines){const address=line.match(streetAddress);if(address){result.location=address[0];const rest=line.slice(address.index+address[0].length);const unit=rest.match(/^\s*,?\s*(?:suite|ste|unit|apt|apartment|floor|building|bldg|#)\s*#?\s*[A-Za-z0-9-]+\b/i);if(unit)result.location+=unit[0];break}}}
- if(!result.location){result.location=lines.find(line=>! /^(?:reason|purpose|notes|appointment|visit|procedure|appt)\b/i.test(line)&&/\b(?:hospital|medical center|cancer center|health center|healthcare center|family practice|clinic)\b/i.test(line))||''}
- if(!result.notes){
- const reasonTerms=/\b(?:lab(?:oratory)?\s*(?:work|tests?|testing)|blood\s*(?:work|tests?|draw)|urine\s*(?:tests?|testing)|x[ -]?rays?|MRI|CT\s*scan|ultrasound|biopsy|vaccin(?:e|ation)|immunization|chemotherapy|radiation|infusion|review\s+(?:(?:blood|lab|test)\s+)?results|medication\s+(?:review|refill)|pain|fever|cough|symptoms?)\b/i;
- const reasons=lines.filter(line=>! /^(?:patient|name|date|time|phone|address|location|where|clinic|appointment(?: name)?|appt|procedure)\s*[:\-]/i.test(line)&&!streetAddress.test(line)&&reasonTerms.test(line));
- result.notes=reasons.join('\n');
- }
-
- if(!result.title){result.title=lines.find(l=>! /^(date|time|reason|notes|location|address|patient|name|dob|phone)\b/i.test(l)&& !/\d{1,2}[:/]\d{2}/.test(l)&&/appointment|check.?up|follow.?up|consult|therapy|treatment|screening|oncology|visit|dr\./i.test(l))||''}
- let date=labeled('date|appointment date|appt date')||text;
+ const result={title:'',notes:'',location:''},source=String(text).replace(/(\d)\s*([/])\s*(?=\d)/g,'$1$2'),lines=source.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+ const labeled=label=>{const re=new RegExp('^(?:'+label+')\\s*(?:[:\\-]\\s*|\\s+)(.+)$','i');for(const line of lines){const match=line.match(re);if(match)return match[1].trim()}return ''};
+ const street=/\b\d{1,6}[A-Za-z]?(?:\s+(?:[A-Za-z][A-Za-z0-9.'’-]*|\d+(?:st|nd|rd|th))){1,8}\s+(?:road|rd|street|st|avenue|ave|boulevard|blvd|drive|dr|lane|ln|court|ct|circle|cir|way|parkway|pkwy|place|pl|terrace|ter|trail|trl|highway|hwy)\b\.?/i;
+ const reason=/\b(?:lab(?:oratory)?\s*(?:work|tests?|testing)|blood\s*(?:work|tests?|draw)|urine\s*(?:tests?|testing)|x[ -]?rays?|MRI|CT\s*scan|ultrasound|biopsy|vaccin(?:e|ation)|immunization|chemotherapy|radiation|infusion|review\s+(?:(?:blood|lab|test)\s+)?results|medication\s+(?:review|refill)|pain|fever|cough|symptoms?)\b/i;
+ const dateNumeric=/\b(?:20\d{2}-\d{1,2}-\d{1,2}|\d{1,2}\s*[/.\-]\s*\d{1,2}\s*[/.\-]\s*(?:\d{4}|\d{2}))\b/;
+ const timePattern=/\b\d{1,2}(?:[:.]\s*[0-5]\d)?\s*[ap]\.?m\.?\b|\b(?:[01]?\d|2[0-3]):[0-5]\d\b/i;
+ const boundaryPatterns=[street,dateNumeric,timePattern,/\b(?:date|time|reason|purpose|address|location)\s*:/i];
+ const clip=(value,patterns)=>{let end=value.length;for(const pattern of patterns){const match=value.match(pattern);if(match)end=Math.min(end,match.index)}return value.slice(0,end).replace(/^[\s,;|—–-]+|[\s,;|—–-]+$/g,'').trim()};
  const putDate=(y,m,d)=>{y=Number(y);m=Number(m);d=Number(d);if(y<100)y+=2000;const check=new Date(y,m-1,d);if(check.getFullYear()===y&&check.getMonth()===m-1&&check.getDate()===d)result.date=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`};
- let m=date.match(/\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
- if(m)putDate(m[1],m[2],m[3]);else{m=date.match(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4}|\d{2})\b/);if(m)putDate(m[3],m[1],m[2]);else{const names='jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';m=date.match(new RegExp('\\b('+names+')\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?[,]?\\s+(20\\d{2})\\b','i'));if(m)putDate(m[3],['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[1].slice(0,3).toLowerCase())+1,m[2])}}
- const time=labeled('time|appointment time|appt time')||text;
- m=time.match(/\b(\d{1,2})(?:[:.]([0-5]\d))?\s*([ap])\.?m\.?/i);
- if(m&&Number(m[1])>=1&&Number(m[1])<=12)result.time=String(Number(m[1])%12+(m[3].toLowerCase()==='p'?12:0)).padStart(2,'0')+':'+(m[2]||'00');
- else {m=time.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);if(m&&Number(m[1])>12)result.time=m[1].padStart(2,'0')+':'+m[2]}
+ let match=source.match(/\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
+ if(match)putDate(match[1],match[2],match[3]);else{match=source.match(/\b(\d{1,2})\s*[/.\-]\s*(\d{1,2})\s*[/.\-]\s*(\d{4}|\d{2})\b/);if(match)putDate(match[3],match[1],match[2]);else{const months='jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';match=source.match(new RegExp('\\b('+months+')\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?[,]?\\s+(20\\d{2})\\b','i'));if(match)putDate(match[3],['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(match[1].slice(0,3).toLowerCase())+1,match[2])}}
+ match=source.match(/\b(\d{1,2})(?:[:.]\s*([0-5]\d))?\s*([ap])\.?m\.?/i);
+ if(match&&Number(match[1])>=1&&Number(match[1])<=12)result.time=String(Number(match[1])%12+(match[3].toLowerCase()==='p'?12:0)).padStart(2,'0')+':'+(match[2]||'00');else{match=source.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);if(match&&Number(match[1])>12)result.time=match[1].padStart(2,'0')+':'+match[2]}
+ result.location=labeled('location|where|address|clinic');
+ if(result.location)result.location=clip(result.location,[dateNumeric,timePattern,reason]);
+ if(!result.location){for(const line of lines){const address=line.match(street);if(address){result.location=address[0];const rest=line.slice(address.index+address[0].length),unit=rest.match(/^\s*,?\s*(?:suite|ste|unit|apt|apartment|floor|building|bldg|#)\s*#?\s*[A-Za-z0-9-]+\b/i);if(unit)result.location+=unit[0];break}}}
+ if(!result.location)result.location=lines.find(l=>! /^(?:reason|purpose|notes|appointment|visit|procedure|appt)\b/i.test(l)&&/\b(?:hospital|medical center|cancer center|health center|family practice|clinic)\b/i.test(l))||'';
+ result.notes=labeled('reason(?: for (?:the )?visit)?|purpose|notes|visit reason');
+ if(result.notes)result.notes=clip(result.notes,boundaryPatterns);
+ if(!result.notes){const reasons=[];for(const line of lines){if(/^(?:patient|name|date|time|phone|address|location|where|clinic)\s*[:\-]/i.test(line))continue;const found=line.match(reason);if(found){const value=clip(line.slice(found.index),boundaryPatterns);if(value)reasons.push(value)}}result.notes=[...new Set(reasons)].join('\n')}
+ result.title=labeled('appointment(?: name)?|visit(?: name)?|procedure|appt(?: name)?');
+ if(result.title)result.title=clip(result.title,[...boundaryPatterns,reason]);
+ if(!result.title){for(const line of lines){if(/^(?:date|time|reason|notes|location|address|patient|name|dob|phone)\b/i.test(line))continue;const found=line.match(/\b(?:follow[ -]?up|check[ -]?up|consult(?:ation)?|appointment|therapy|treatment|screening|oncology|visit|dr\.)\b/i);if(found){result.title=clip(line.slice(found.index),[...boundaryPatterns,reason]);if(result.title)break}}}
  return result;
 }
 function fillFromText(){const found=parseAppointment($('#transcript').value),filled=[];for(const key of ['title','date','time','location','notes'])if(found[key]&&!$('#'+key).value.trim()){$('#'+key).value=found[key];filled.push(key==='notes'?'reason':key)}return filled}
