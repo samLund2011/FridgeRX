@@ -1,0 +1,23 @@
+FridgeRX — How the technologies are used
+
+PROGRAMMING AND BACKEND
+Python 3 runs the website locally on the Mac. Its built-in http.server module serves the webpage and receives uploaded appointment photos through an /ocr endpoint.
+
+Swift connects the app to Apple's Vision framework. Vision examines the photo and returns the detected text, confidence scores, and positions of the text in the image. The app reads the full page and then rereads individual lines to provide alternative readings for review.
+
+Python passes the photo to the Swift program and sends the recognition results back to the webpage in JSON format. The current text reader runs locally on the Mac rather than sending the photo to a cloud AI service.
+
+FRONTEND
+HTML builds the appointment forms, photo-upload controls, family circle, and appointment cards.
+
+CSS creates the navy, ivory, and coral color scheme and adjusts the layout for different screen sizes.
+
+JavaScript connects the page's features. It uploads photos to the local backend, displays the transcription, and lets users correct individual lines. When the user clicks "Fill empty fields from this text," JavaScript looks for appointment names, dates, times, addresses, and visit reasons, then fills recognizable details into empty fields. It uses labels and text patterns; it does not understand every possible phrase.
+
+Canvas shows the uploaded image, draws boxes around detected text, and displays close-ups of individual lines for comparison.
+
+Browser localStorage saves appointments and family contacts on the current device. There is no backend database or automatic synchronization between family members.
+
+JavaScript also prepares appointment text for email or device sharing and generates .ics files that users can import into their calendars.
+
+Google Fonts provides the page's fonts when internet access is available, with fallback fonts otherwise.
