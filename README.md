@@ -4,6 +4,12 @@ FridgeRX helps older adults organize doctor and cancer treatment appointments an
 
 Upload a photo of an appointment note, review its transcription alongside close-ups of each detected line, and fill the appointment form from the corrected text. Appointment details can then be shared by email or the device sharing menu, or downloaded as a calendar event.
 
+## Public website
+
+Open **https://samlund2011.github.io/FridgeRX/**. No sign-in, installation, or local server is required.
+
+The public version reads photos in the browser. It works best with printed text and neat block letters; handwriting accuracy differs from the macOS reader. Review results before using them. Appointments remain in the current browser.
+
 ## Run locally
 
 Requires **macOS**, **Python 3**, and **Apple Command Line Tools** (including `swiftc`). The text reader uses Apple's Vision framework and does not run on Windows or Linux.
