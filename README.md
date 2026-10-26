@@ -8,7 +8,7 @@ Upload a photo of an appointment note, review its transcription alongside close-
 
 Open **https://samlund2011.github.io/FridgeRX/**. No sign-in, installation, or local server is required.
 
-The public version reads photos in the browser. It works best with printed text and neat block letters; handwriting accuracy differs from the macOS reader. Review results before using them. Appointments remain in the current browser.
+The public version reads photos in the browser. Choose handwritten notes or printed appointment cards. Handwritten photos are split into text-line images and transcribed individually; the reader downloads on first use. Handwriting accuracy differs from the macOS reader. Review results before using them. Appointments remain in the current browser.
 
 ## Run locally
 
