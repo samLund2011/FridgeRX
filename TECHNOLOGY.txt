@@ -5,7 +5,7 @@ Python 3 runs the website locally on the Mac. Its built-in http.server module se
 
 Swift connects the app to Apple's Vision framework. Vision examines the photo and returns the detected text, confidence scores, and positions of the text in the image. The app reads the full page and then rereads individual lines to provide alternative readings for review.
 
-Python passes the photo to the Swift program and sends the recognition results back to the webpage in JSON format. The current text reader runs locally on the Mac rather than sending the photo to a cloud AI service.
+Python passes the photo to the Swift program and sends the recognition results back to the webpage in JSON format. The text reader processes the photo locally on the Mac.
 
 FRONTEND
 HTML builds the appointment forms, photo-upload controls, family circle, and appointment cards.
